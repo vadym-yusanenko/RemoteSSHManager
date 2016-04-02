@@ -48,7 +48,7 @@ libssh2:
 ifdef SystemRoot
 	# TODO: we are on Windows
 else
-	cd libraries/libssh2-1.6.0 && bash configure --enable-shared=no --disable-examples-build && make;
+	cd libraries/libssh2-1.7.0 && bash configure --enable-shared=no --disable-examples-build && make clean && make;
 endif
 
 openssl:

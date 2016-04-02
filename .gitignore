@@ -1,2 +1,7 @@
 /build/
 /Debug/
+.cproject
+.project
+.pydevproject
+.DS_Store
+*.o
