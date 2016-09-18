@@ -308,7 +308,7 @@ void ssh_execute_commands(LIBSSH2_SESSION* ssh_session, int* ssh_socket, struct 
 			return;
 		}
 
-		response_string_stdout = malloc(1 * sizeof(char));
+		response_string_stdout = malloc(1024 * sizeof(char));
 		memset(response_string_stdout, 0, 1 * sizeof(char));
 		while (1)
 		{
@@ -329,7 +329,7 @@ void ssh_execute_commands(LIBSSH2_SESSION* ssh_session, int* ssh_socket, struct 
 		if (strlen(response_string_stdout))
 			current_command->stdout_response_id = record_response_in_dictionary(responses_dictionary, response_string_stdout, response_type_stdout);
 
-		response_string_stderr = malloc(1 * sizeof(char));
+		response_string_stderr = malloc(1024 * sizeof(char));
 		memset(response_string_stderr, 0, 1 * sizeof(char));
 		while (1)
 		{

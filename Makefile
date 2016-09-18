@@ -1,18 +1,22 @@
 ### VARIABLES SECTION ###
 
+PYTHON_INTERPRETER=/Library/Frameworks/Python.framework/Versions/2.7/bin/python
+PYTHON_SITE_PACKAGES_DIR=/Library/Frameworks/Python.framework/Versions/2.7/site-packages
+PYTHON_LIBRARY_DIR=/Library/Frameworks/Python.framework/Versions/2.7/lib
+PYTHON_INCLUDE_DIR=/Library/Frameworks/Python.framework/Versions/2.7/include
 OPENSSL_VERSION=1.0.2g
 OPENSSL_BUILD_DIR=usr/local/openssl_build
 LIBSSH2_VERSION=1.7.0
 CC=gcc
 DEPS=functions.h definitions.h
-CFLAGS=-DDEBUG -I/c/python27/include -I/usr/local/include/ -Ilibraries/libssh2-$(LIBSSH2_VERSION)/include
+CFLAGS=-DDEBUG -I/c/python27/include -I$(PYTHON_INCLUDE_DIR) -Ilibraries/libssh2-$(LIBSSH2_VERSION)/include
 ifdef SystemRoot
 	LIBS+=-lpthreadgc2 -lpython27 -lws2_32
 	LDFLAGS=-L/usr/local/lib -L/c/python27/libs $(LIBS)
 else
 	ifeq ($(shell uname -s), Darwin)
 		LIBS=-lssh2 -lssl -lcrypto -lz -lpython2.7 -lpthread
-		LDFLAGS=-L./libraries/libssh2-$(LIBSSH2_VERSION)/src/.libs/ -L/Library/Frameworks/Python.framework/Versions/2.7/lib/ -L./libraries/openssl-$(OPENSSL_VERSION)/$(OPENSSL_BUILD_DIR)/lib/ $(LIBS)
+		LDFLAGS=-L./libraries/libssh2-$(LIBSSH2_VERSION)/src/.libs/ -L$(PYTHON_LIBRARY_DIR) -L./libraries/openssl-$(OPENSSL_VERSION)/$(OPENSSL_BUILD_DIR)/lib/ $(LIBS)
 	endif
 endif
 
@@ -40,10 +44,10 @@ extension: openssl zlib libssh2
 extension:
 	rm -rf build;
 ifdef SystemRoot
-	python setup.py build --compiler=mingw32 && cp build/lib.mingw-2.7/threaded_remote_manager.pyd /c/python27/lib/site-packages;
+	python setup.py build --compiler=mingw32
 else
 ifeq ($(shell uname -s), Darwin)
-	python setup.py build && cp build/lib.macosx-*-intel-2.7/threaded_remote_manager.so /Library/Python/2.7/site-packages;
+	$(PYTHON_INTERPRETER) setup.py build
 endif
 endif
 
