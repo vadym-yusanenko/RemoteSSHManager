@@ -2,6 +2,12 @@ from distutils.core import setup, Extension
 from glob import glob
 from platform import platform
 
+PYTHON_LIBRARY_PATH = (
+    '/Library/Frameworks/Python.framework/Versions/2.7/lib'
+    if platform() == 'Darwin'
+    else ''  # TODO: Linux
+)
+
 
 extension_mod = Extension(
     "threaded_remote_manager",
@@ -13,7 +19,7 @@ extension_mod = Extension(
         # Windows
         'c:\\msys32\\usr\\local\\include\\',
         # UNIX
-        'libraries/libssh2-1.6.0/include'
+        'libraries/libssh2-1.7.0/include'
     ],
     library_dirs = (
         # Windows
@@ -26,7 +32,9 @@ extension_mod = Extension(
         else
         # UNIX
         [
-            'libraries/libssh2-1.6.0/src/.libs/'
+            'libraries/libssh2-1.7.0/src/.libs/',
+            'libraries/openssl-1.0.2g/usr/local/openssl_build/lib',
+            PYTHON_LIBRARY_PATH
         ]
     ),
     libraries = (
@@ -44,10 +52,10 @@ extension_mod = Extension(
 
 setup(
     name = "Threaded remote manager",
-    version = '0.9',
+    version = '0.91',
     description = 'UIMT threaded remote manager implemented in ANSI C',
-    author = 'Vadim Yusanenko',
+    author = 'Vadym Yusanenko',
     author_email = 'usanenko.vadim@gmail.com',
-    url = 'http://code.google.com/p/unix-infrastructure-management/',
+    url = 'https://github.com/yusanenko-vadim/ThreadedRemoteSSHManager',
     ext_modules=[extension_mod]
 )
