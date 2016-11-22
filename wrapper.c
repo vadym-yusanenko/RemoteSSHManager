@@ -1,353 +1,264 @@
+/*
+ * wrapper.c
+ *
+ *  Created on: Nov 22, 2016
+ *      Author: vadimyusanenko
+ */
+
 #ifdef _WIN32
-#include <Python.h>
+	#include <Python.h>
 #else
-#include <python2.7/Python.h>
+	#include <python2.7/Python.h>
 #endif
 
-#include "definitions.h"
-#include "functions.h"
+#define DEBUG_OUTPUT fprintf
 
-#ifndef _WIN32
-#include <unistd.h>
-#endif
-#include <stdio.h>
-#include <stdlib.h>
+#include <netinet/in.h>
+#include <libssh2.h>
+#include <netdb.h>
+#include <arpa/inet.h>
 
-static struct Response* response = NULL;
 
-PyObject *start_remote_manager_wrapper(PyObject *self, PyObject *py_arguments)
+void form_response_string(char** response_string, char* response_chunk, long response_chunk_size)
 {
-	/* Variable declaration and initialization */
-	pthread_t thread_handle;
+	unsigned long response_size = strlen(*response_string);
 
-	/* Python representation of provided arguments */
-	/* Hosts */
-	PyObject* py_hosts_list = NULL;
-	Py_ssize_t hosts_list_iterator = 0;
-	PyObject* py_current_host = NULL;
-	Py_ssize_t host_count = 0;
-	/* Hosts' commands */
-	PyObject* py_host_command_data_list = NULL;
-	Py_ssize_t host_command_data_list_iterator = 0;
-	Py_ssize_t host_command_data_count = 0;
-	/* Dictionary of commands */
-	PyObject* py_dictionary_commands_list = NULL;
-	Py_ssize_t dictionary_commands_list_iterator = 0;
-	Py_ssize_t dictionary_command_count = 0;
-	/* Handle to return back to Python code */
-	PyObject* py_handle = NULL;
+	*response_string = realloc(*response_string, response_size = (response_size + response_chunk_size + (1 * sizeof(char))));
 
-	/* C representation of provided arguments */
-	struct RemoteHost* remote_hosts = NULL;
-	struct RemoteHost* current_remote_host = NULL;
-	struct CommandDetails* host_command_data = NULL;
-	struct CommandDetails* current_host_command_data = NULL;
-	struct Command* dictionary_commands = NULL;
-	struct Command* current_dictionary_command = NULL;
-	struct SSHData* ssh_data = NULL;
+	memcpy(*response_string + strlen(*response_string), response_chunk, response_chunk_size);
+	memset(*response_string + response_size - (1 * sizeof(char)), 0, (1 * sizeof(char)));
+}
 
-	/* Getting arguments to process */
-	if (!PyArg_ParseTuple(py_arguments, "OO", &py_hosts_list, &py_dictionary_commands_list))
+
+const char* hostname_to_ip(const char* hostname)
+{
+	struct in_addr internet_address;
+	memset(&internet_address, 0, sizeof(internet_address));
+
+	struct addrinfo* result = NULL;
+
+	getaddrinfo(hostname, NULL, NULL, &result);
+
+	if (result == NULL || result->ai_addr == NULL)
+		return ("unknown");
+
+	internet_address.s_addr = ((struct sockaddr_in *)(result->ai_addr))->sin_addr.s_addr;
+
+	freeaddrinfo(result);
+
+	return (inet_ntoa(internet_address));
+}
+
+
+PyObject* execute_ssh_instructions(PyObject* self, PyObject* args, PyObject* kwargs)
+{
+	Py_Initialize();
+	/* TODO: Not thread safe!!! */
+	libssh2_init(0);
+
+	// import remote_ssh_manager; remote_ssh_manager.execute_ssh_instructions('app31.mojosells.com', 'ubuntu', None, '/Users/vadimyusanenko/mojo-app-server.pem', ['ls -alh', 'ifconfig', 'uname -a'])
+
+	static char* arguments[] = {"ssh_host", "ssh_username", "ssh_password", "ssh_key_path", "ssh_commands", NULL};
+
+	char* ssh_host;
+	char* ssh_username;
+	char* ssh_password;
+	char* ssh_key_path;
+	PyListObject* command_list;
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "sszzO", arguments, &ssh_host, &ssh_username, &ssh_password, &ssh_key_path, &command_list))
 	{
-		PyErr_SetString(PyExc_ValueError, "Incorrect arguments provided");
-		return NULL;
+		PyErr_SetString(PyExc_Exception, "Invalid argument(s) provided");
+		return (PyObject*) NULL;
 	}
 
-	/* Identify amount of hosts to process */
-	host_count = PyObject_Length(py_hosts_list);
+	DEBUG_OUTPUT(stdout, "=> Creating socket...\n");
+	int ssh_socket = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+	DEBUG_OUTPUT(stdout, "\tDONE\n");
 
-	/* Iterating through hosts and translating Python objects into C structs for processing */
-	for (hosts_list_iterator = 0; hosts_list_iterator < host_count; hosts_list_iterator++)
+	DEBUG_OUTPUT(stdout, "=> Resolving IP by domain...\n");
+	const char* ip = hostname_to_ip(ssh_host);
+	if (strcmp(ip, "unknown") == 0)
 	{
-		/* Example of incoming data from Python code */
+		PyErr_SetString(PyExc_Exception, "Invalid domain provided");
+		return (PyObject*) NULL;
+	}
+	DEBUG_OUTPUT(stdout, "\t%s => %s\n", ssh_host, ip);
 
-		/* Hosts list:
-		 * [
-		 * 	{
-		 * 		'host': 'test.com',
-		 * 		'commands': [0, 1],
-		 * 		'role': 'ubuntu',
-		 * 		'ssh_username': 'ubuntu',
-		 * 		'ssh_password': 'test',
-		 * 		'ssh_key_path': '/tmp/test.pem'
-		 * 	}
-		 * ]
-		 *
-		 * Commands dictionary:
-		 * ['command_1', 'command_2'] */
+	struct sockaddr_in socket_address_in;
+	memset(&socket_address_in, 0, sizeof(struct sockaddr_in));
+	socket_address_in.sin_family = AF_INET;
+	socket_address_in.sin_port = htons(22);
+	socket_address_in.sin_addr.s_addr = inet_addr(ip);
 
-		DEBUG_OUTPUT(
-			stdout,
-			"Fetched host from list: %s\n",
-			PyString_AsString(
-				PyObject_Str(
-					PyObject_GetItem(
-						py_hosts_list,
-						PyInt_FromLong(hosts_list_iterator)
-					)
-				)
-			)
-		);
+	DEBUG_OUTPUT(stdout, "=> Connecting to server...\n");
+	if (connect(ssh_socket, (struct sockaddr*) &socket_address_in, (socklen_t) sizeof(struct sockaddr_in)) != 0)
+	{
+		PyErr_SetString(PyExc_Exception, "Failed to connect to host");
+		return (PyObject*) NULL;
+	}
+	DEBUG_OUTPUT(stdout, "\tDONE\n");
 
-		/* Getting current host (dict) from hosts list */
-		py_current_host = PyObject_GetItem(py_hosts_list, PyInt_FromLong(hosts_list_iterator));
+	DEBUG_OUTPUT(stdout, "=> Initializing libssh2 session...\n");
+	LIBSSH2_SESSION* ssh_session = libssh2_session_init();
+	DEBUG_OUTPUT(stdout, "\tDONE\n");
 
-		/* Getting host's command data (list of command ids) from dict */
-		py_host_command_data_list = PyObject_GetItem(py_current_host, PyString_FromString("commands"));
+	DEBUG_OUTPUT(stdout, "=> Enabling blocking mode...\n");
+	libssh2_session_set_blocking(ssh_session, 1);
+	DEBUG_OUTPUT(stdout, "\tDONE\n");
 
-		/* Getting command ids count from host's commands list */
-		host_command_data_count = PyObject_Length(py_host_command_data_list);
+	DEBUG_OUTPUT(stdout, "=> Setting maximum supported timeout for SSH session...\n");
+    /* We have to disable timeout, as processing in practice may take some time */
+    libssh2_session_set_timeout(ssh_session, 0);
+    DEBUG_OUTPUT(stdout, "\tDONE\n");
 
-		DEBUG_OUTPUT(stdout, "Host's command count: %ld\n", host_command_data_count);
+    DEBUG_OUTPUT(stdout, "=> Enabling SSH protocol compression...\n");
+    /* Setting SSH compression to speed up big data transfers */
+    /* _SC - server-client, _CS - client-server */
+    libssh2_session_method_pref(ssh_session, LIBSSH2_METHOD_COMP_SC, "zlib");
+    DEBUG_OUTPUT(stdout, "\tDONE\n");
 
-		/* Resetting current host's commands before processing */
-		current_host_command_data = NULL;
+    DEBUG_OUTPUT(stdout, "=> Performing SSH handshake...\n");
+    if (libssh2_session_handshake(ssh_session, ssh_socket))
+    {
+    	PyErr_SetString(PyExc_Exception, "Failure establishing SSH session");
+    	return (PyObject*) NULL;
+    }
+    DEBUG_OUTPUT(stdout, "\tDONE\n");
 
-		/* Iterating over host's commands list */
-		for (host_command_data_list_iterator = 0; host_command_data_list_iterator < host_command_data_count; host_command_data_list_iterator++)
+    DEBUG_OUTPUT(stdout, "=> Getting available authentication methods...\n");
+    const char* user_authentication_methods = libssh2_userauth_list(ssh_session, ssh_username, (unsigned int) strlen(ssh_username));
+    DEBUG_OUTPUT(stdout, "\t%s\n", user_authentication_methods);
+
+	if (strstr(user_authentication_methods, "password") && strlen(ssh_password) != 0)
+	{
+		DEBUG_OUTPUT(stdout, "=> Authenticating with password...\n");
+		if (libssh2_userauth_password(ssh_session, ssh_username, ssh_password))
 		{
-			DEBUG_OUTPUT(
-				stdout,
-				"Fetched command from list: %s\n",
-				PyString_AsString(
-					PyObject_GetItem(
-						py_dictionary_commands_list,
-						PyObject_GetItem(
-							py_host_command_data_list,
-							PyInt_FromLong(host_command_data_list_iterator)
-						)
-					)
-				)
-			);
+			PyErr_SetString(PyExc_Exception, "Authentication by password failed");
+			return (PyObject*) NULL;
+		}
+		DEBUG_OUTPUT(stdout, "\tDONE\n");
+	}
+	else if (strstr(user_authentication_methods, "publickey") && strlen(ssh_key_path) != 0)
+	{
+		DEBUG_OUTPUT(stdout, "=> Authenticating with public key...\n");
+		if (libssh2_userauth_publickey_fromfile(ssh_session, ssh_username, NULL, ssh_key_path, ""))
+		{
+			PyErr_SetString(PyExc_Exception, "Authentication by public key failed");
+			return (PyObject*) NULL;
+		}
+		DEBUG_OUTPUT(stdout, "\tDONE\n");
+	}
+	else
+	{
+		PyErr_SetString(PyExc_Exception, "No supported authentication methods found");
+		return (PyObject*) NULL;
+	}
 
-			/* Create new host's command entity (C struct) */
-			current_host_command_data = create_new_command(
-				current_host_command_data,
-				PyInt_AsLong(
-					PyObject_GetItem(
-						py_host_command_data_list,
-						PyInt_FromLong(host_command_data_list_iterator)
-					)
-				)
-			);
+	unsigned char command_count = PyList_Size(command_list);
 
-			if (host_command_data_list_iterator == 0)
-				host_command_data = current_host_command_data;
+	PyTupleObject* py_response = PyTuple_New(command_count);
+
+	for (unsigned char i = 0; i < command_count; i++)
+	{
+		PyTupleObject* py_command_response = PyTuple_New(2);
+
+		DEBUG_OUTPUT(stdout, "=> Command: %s\n", PyString_AsString(PyList_GetItem(command_list, i)));
+
+		LIBSSH2_CHANNEL* ssh_channel = libssh2_channel_open_session(ssh_session);
+
+		if (ssh_channel == NULL)
+		{
+			PyErr_SetString(PyExc_Exception, "Failed to initiate SSH session");
+			return (PyObject*) NULL;
 		}
 
-		/* Create new host entity (C struct) */
-		current_remote_host = create_new_remote_host(
-			current_remote_host,
-			host_command_data,
-			PyString_AsString(
-				PyObject_GetItem(py_current_host, PyString_FromString("host"))
-			),
-			PyString_AsString(
-				PyObject_GetItem(py_current_host, PyString_FromString("ssh_username"))
-			),
-			PyString_AsString(
-				PyObject_GetItem(py_current_host, PyString_FromString("ssh_key_path"))
-			),
-			PyString_AsString(
-				PyObject_GetItem(py_current_host, PyString_FromString("ssh_password"))
-			)
-		);
+		libssh2_channel_set_blocking(ssh_channel, 1);
 
-		if (hosts_list_iterator == 0)
-			remote_hosts = current_remote_host;
-	}
-
-	/* Getting command count from commands dictionary */
-	dictionary_command_count = PyObject_Length(py_dictionary_commands_list);
-
-	DEBUG_OUTPUT(stdout, "Command count (commands dictionary): %ld\n", host_command_data_count);
-
-	/* Iterating over dictionary commands and representing then as C structs */
-	for (dictionary_commands_list_iterator = 0; dictionary_commands_list_iterator < dictionary_command_count; dictionary_commands_list_iterator++)
-	{
-		DEBUG_OUTPUT(
-			stdout,
-			"Fetched command from dictionary: %s\n",
-			PyString_AsString(
-				PyObject_GetItem(
-					py_dictionary_commands_list,
-					PyInt_FromLong(dictionary_commands_list_iterator)
-				)
-			)
-		);
-
-		current_dictionary_command = create_new_dictionary_command(
-			current_dictionary_command,
-			PyString_AsString(
-				PyObject_GetItem(
-					py_dictionary_commands_list,
-					PyInt_FromLong(dictionary_commands_list_iterator)
-				)
-			)
-		);
-
-		if (dictionary_commands_list_iterator == 0)
-			dictionary_commands = current_dictionary_command;
-	}
-
-	/* Passing processed arguments to new thread */
-	ssh_data = malloc(sizeof(struct SSHData));
-	ssh_data->commands_dictionary = dictionary_commands;
-	ssh_data->remote_hosts = remote_hosts;
-	ssh_data->responses_dictionary = &response;
-
-	/* Starting processing thread */
-	pthread_create(&thread_handle, NULL, execute_remote_host_operations, (void*) ssh_data);
-
-	/* Returning back process handle */
-	py_handle = PyInt_FromLong((long) ssh_data);
-	Py_INCREF(py_handle);
-	return (py_handle);
-}
-
-PyObject *check_status_wrapper(PyObject *self, PyObject *py_arguments)
-{
-	PyObject* py_response = NULL;
-	long manager_handle = 0;
-	long finished_processes = 0;
-	long active_processes = 0;
-	long processes_overall = 0;
-
-	if (!PyArg_ParseTuple(py_arguments, "l", &manager_handle))
-		return NULL;
-
-	check_remote_host_operations_status(manager_handle, &finished_processes, &active_processes, &processes_overall);
-
-	py_response = PyTuple_Pack(3, PyInt_FromLong(finished_processes), PyInt_FromLong(active_processes), PyInt_FromLong(processes_overall));
-
-	Py_INCREF(py_response);
-	return (py_response);
-}
-
-PyObject *get_response_wrapper(PyObject *self, PyObject *py_arguments)
-{
-	/* import threaded_remote_manager */
-	/* handle = threaded_remote_manager.start_remote_manager([{'host': 'lb11.***.com', 'commands': [0, 1], 'role': '...', 'ssh_username': '...', 'ssh_password': '', 'ssh_key_path': '/Users/.../....pem'}, {'host': 'app11.....com', 'commands': [0, 1], 'role': '...', 'ssh_username': '...', 'ssh_password': '', 'ssh_key_path': '/Users/.../....pem'}], ['ls -alh', 'uname -a']) */
-	/* threaded_remote_manager.check_status(handle) */
-	/* threaded_remote_manager.get_response(handle) */
-
-	long manager_handle = 0;
-	struct RemoteHost* current_remote_host = NULL;
-	struct Response* current_response_in_dictionary = NULL;
-	struct CommandDetails* current_remote_host_command = NULL;
-
-	if (!PyArg_ParseTuple(py_arguments, "l", &manager_handle))
-		return NULL;
-
-	struct RemoteHost* remote_hosts = ((struct SSHData*) manager_handle)->remote_hosts;
-
-	/* {
-	 * 		'hosts': [
-	 * 			{
-	 * 				'host': 'test.com',
-	 * 				'commands': [(0, 0, 0), (1, 0, 1)],
-	 * 				'error_code': 0
-	 * 			}
-	 * 		],
-	 *
-	 * 		responses_dictionary: ['response_1', 'response_2']
-	 */
-
-	PyObject* py_response = NULL;
-	PyObject* py_responses_list = NULL;
-	PyObject* py_remote_hosts_response_list = NULL;
-	PyObject* py_remote_host_response_dict = NULL;
-	PyObject* py_remote_host_commands_list = NULL;
-
-	py_response = PyDict_New();
-	py_responses_list = PyList_New(0);
-	py_remote_hosts_response_list = PyList_New(0);
-
-	current_remote_host = remote_hosts;
-
-	while (current_remote_host)
-	{
-		py_remote_host_response_dict = PyDict_New();
-
-		PyDict_SetItem(py_remote_host_response_dict, PyString_FromString("host"), PyString_FromString(current_remote_host->host_name));
-
-		py_remote_host_commands_list = PyList_New(0);
-
-		current_remote_host_command = current_remote_host->commands;
-
-		while (current_remote_host_command)
+		DEBUG_OUTPUT(stdout, "=> Executing...\n");
+		int command_response = libssh2_channel_exec(ssh_channel, PyString_AsString(PyList_GetItem(command_list, i)));
+		if (command_response != 0)
 		{
-			PyList_Append(
-				py_remote_host_commands_list,
-				PyTuple_Pack(
-					3,
-					PyInt_FromLong(current_remote_host_command->command_id),
-					PyInt_FromLong(current_remote_host_command->stdout_response_id),
-					PyInt_FromLong(current_remote_host_command->stderr_response_id)
-				)
-			);
+			/* continue? */
+			PyErr_SetString(PyExc_Exception, "Error during command execution");
+			return (PyObject*) NULL;
+		}
+		DEBUG_OUTPUT(stdout, "\tDONE\n");
 
-			current_remote_host_command = current_remote_host_command->next_command;
+		long response_bytes = 0;
+
+		char* response_buffer = malloc(1024 * sizeof(char));
+
+		DEBUG_OUTPUT(stdout, "=> Reading stdout...\n");
+		char* response_string_stdout = malloc(1024 * sizeof(char));
+		memset(response_string_stdout, 0, 1024 * sizeof(char));
+		do
+		{
+			memset(response_buffer, 0, 1024 * sizeof(char));
+			response_bytes = libssh2_channel_read(ssh_channel, response_buffer, 1024 * sizeof(char));
+			form_response_string(&response_string_stdout, response_buffer, response_bytes);
+		}
+		while (response_bytes > 0);
+		DEBUG_OUTPUT(stdout, "\tOUTPUT: %s\n", response_string_stdout);
+
+		PyTuple_SetItem(py_command_response, 0, PyString_FromString(response_string_stdout));
+		free(response_string_stdout);
+
+		DEBUG_OUTPUT(stdout, "=> Reading stderr...\n");
+		char* response_string_stderr = malloc(1024 * sizeof(char));
+		memset(response_string_stderr, 0, 1024 * sizeof(char));
+		do
+		{
+			memset(response_buffer, 0, 1024 * sizeof(char));
+			response_bytes = libssh2_channel_read_stderr(ssh_channel, response_buffer, 1024 * sizeof(char));
+			form_response_string(&response_string_stderr, response_buffer, (unsigned long) response_bytes);
+		}
+		while (response_bytes > 0);
+		DEBUG_OUTPUT(stdout, "\tOUTPUT: %s\n", response_string_stdout);
+
+		PyTuple_SetItem(py_command_response, 1, PyString_FromString(response_string_stderr));
+		free(response_string_stderr);
+
+		/* FIXME: Explain this??? */
+		int exit_code = 127;
+
+		command_response = libssh2_channel_close(ssh_channel);
+
+		char* exit_signal = (char *) "none";
+		if (command_response == 0)
+		{
+			exit_code = libssh2_channel_get_exit_status(ssh_channel);
+			libssh2_channel_get_exit_signal(ssh_channel, &exit_signal, NULL, NULL, NULL, NULL, NULL);
 		}
 
-		PyDict_SetItem(py_remote_host_response_dict, PyString_FromString("commands"), py_remote_host_commands_list);
+		if (exit_signal)
+			DEBUG_OUTPUT(stdout, "Got signal: %s\n", exit_signal);
+		else
+			DEBUG_OUTPUT(stdout, "Exit code: %d\n", exit_code);
 
-		PyDict_SetItem(py_remote_host_response_dict, PyString_FromString("error_code"), PyInt_FromLong(current_remote_host->error_code));
+		libssh2_channel_free(ssh_channel);
 
-		current_remote_host = current_remote_host->next_remote_host;
+		ssh_channel = NULL;
 
-		PyList_Append(py_remote_hosts_response_list, py_remote_host_response_dict);
+		free(response_buffer);
+
+		PyTuple_SetItem(py_response, i, py_command_response);
 	}
 
-	PyDict_SetItem(py_response, PyString_FromString("hosts"), py_remote_hosts_response_list);
-
-	current_response_in_dictionary = *((struct SSHData*) manager_handle)->responses_dictionary;
-
-	while (current_response_in_dictionary)
-	{
-		PyList_Append(py_responses_list, PyString_FromString(current_response_in_dictionary->response));
-
-		current_response_in_dictionary = current_response_in_dictionary->next_response;
-	}
-
-	PyDict_SetItem(py_response, PyString_FromString("responses_dictionary"), py_responses_list);
-
-	release_response_memory(&response);
-	response = NULL;
-
-	Py_INCREF(py_response);
-	return (py_response);
+    return Py_BuildValue("O", py_response);
 }
 
-static PyMethodDef threaded_remote_managerMethods[] =
-{
-	{
-		"start_remote_manager",
-		start_remote_manager_wrapper,
-		METH_KEYWORDS,
-		""
-	},
-	{
-		"check_status",
-		check_status_wrapper,
-		METH_KEYWORDS,
-		""
-	},
-	{
-		"get_response",
-		get_response_wrapper,
-		METH_KEYWORDS,
-		""
-	},
-	{
-		NULL,
-		NULL,
-		0,
-		NULL
-	}
+static PyMethodDef remote_ssh_manager_methods[] = {
+    /* The cast of the function is necessary since PyCFunction values
+     * only take two PyObject* parameters, and our function with key-value
+     * arguments takes three.
+     */
+    {"execute_ssh_instructions", (PyCFunction) execute_ssh_instructions, METH_VARARGS|METH_KEYWORDS},
+    {NULL,  NULL}
 };
 
-DL_EXPORT(void) initthreaded_remote_manager(void)
+void initremote_ssh_manager()
 {
-	Py_InitModule("threaded_remote_manager", threaded_remote_managerMethods);
+  /* Create the module and add the functions */
+  Py_InitModule("remote_ssh_manager", remote_ssh_manager_methods);
 }

@@ -10,10 +10,9 @@ PYTHON_LIBRARY_PATH = (
 
 
 extension_mod = Extension(
-    "threaded_remote_manager",
+    "remote_ssh_manager",
     sources = [
-        "wrapper.c",
-        "functions.c"
+        "wrapper.c"
     ],
     include_dirs = [
         # Windows
@@ -39,11 +38,11 @@ extension_mod = Extension(
     ),
     libraries = (
         # Windows
-        ['python27', 'ssh2', 'ssl', 'crypto', 'z', 'pthread', 'gdi32', 'ws2_32']
+        ['python27', 'ssh2', 'ssl', 'crypto', 'z', 'gdi32', 'ws2_32']
         if platform() == 'Windows'
         else
         # UNIX
-        ['python2.7', 'ssh2', 'ssl', 'crypto', 'z', 'pthread']
+        ['python2.7', 'ssh2', 'ssl', 'crypto', 'z']
     ),
     extra_compile_args = ['-O3', '-flto'] + (['-mwin32'] if platform() == 'Windows' else []),
     extra_link_args = ['-O3', '-flto']
@@ -51,11 +50,11 @@ extension_mod = Extension(
 
 
 setup(
-    name = "Threaded remote manager",
-    version = '0.91',
-    description = 'UIMT threaded remote manager implemented in ANSI C',
+    name = "Remote SSH manager",
+    version = '1.0',
+    description = 'Simple and fast SSH manager written in C',
     author = 'Vadym Yusanenko',
     author_email = 'usanenko.vadim@gmail.com',
-    url = 'https://github.com/yusanenko-vadim/ThreadedRemoteSSHManager',
+    url = 'https://github.com/yusanenko-vadim/RemoteSSHManager',
     ext_modules=[extension_mod]
 )
