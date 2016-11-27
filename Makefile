@@ -1,5 +1,6 @@
 ### VARIABLES SECTION ###
 
+PYTHON_INTERPRETER=/usr/bin/python
 OPENSSL_VERSION=1.1.0c
 OPENSSL_BUILD_DIR=usr/local/openssl_build
 OPENSSL_INSTALL_DIR=usr/local/openssl_install
@@ -10,7 +11,7 @@ LIBSSH2_VERSION=1.8.0
 
 # NOTE: Because two builds differ only in defines, make will be confused and will claim the target has already been built - so clean-up is advised
 
-extension: openssl zlib libssh2
+#extension: openssl zlib libssh2
 extension:
 	rm -rf build;
 ifdef SystemRoot
