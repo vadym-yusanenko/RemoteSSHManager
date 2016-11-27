@@ -4,6 +4,11 @@
  *     License: BSD
  */
 
+#define REMOTE_SSH_MANAGER_VERSION "1.0.0"
+
+#define REMOTE_SSH_MANAGER_OPENSSL_VERSION "1.1.0c"
+#define REMOTE_SSH_MANAGER_LIBSSH2_VERSION "1.8.0"
+
 #ifdef _WIN32
 	#include <Python.h>
 #else
@@ -20,6 +25,7 @@
 #include <netinet/in.h>
 #include <libssh2.h>
 #include <netdb.h>
+#include <string.h>
 
 // TODO: accept tuple only
 
@@ -31,6 +37,40 @@ void form_response_string(char** response_string, char* response_chunk, long res
 
 	memcpy(*response_string + strlen(*response_string), response_chunk, response_chunk_size);
 	memset(*response_string + response_size - 1, 0, 1);
+}
+
+
+PyObject* get_build_information(PyObject* self)
+{
+	Py_Initialize();
+
+	PyTupleObject* py_response = PyTuple_New(5);
+	PyTuple_SetItem(py_response, 0, PyString_FromString(REMOTE_SSH_MANAGER_VERSION));
+
+#ifdef __clang__
+	// TODO: use strncat!
+	char compiler_version_string[512];
+	memset(compiler_version_string, 0, sizeof(compiler_version_string));
+	strcat(compiler_version_string, "clang, version ");
+	strcat(compiler_version_string, __clang_version__);
+
+	const char* compiled_architecture = "64-bit";
+
+	char openssl_version_string[128];
+	memset(openssl_version_string, 0, sizeof(openssl_version_string));
+	strcat(openssl_version_string, REMOTE_SSH_MANAGER_OPENSSL_VERSION);
+
+	char libssh2_version_string[128];
+	memset(libssh2_version_string, 0, sizeof(libssh2_version_string));
+	strcat(libssh2_version_string, REMOTE_SSH_MANAGER_LIBSSH2_VERSION);
+#endif
+
+	PyTuple_SetItem(py_response, 1, PyString_FromString(compiler_version_string));
+	PyTuple_SetItem(py_response, 2, PyString_FromString(compiled_architecture));
+	PyTuple_SetItem(py_response, 3, PyString_FromString(openssl_version_string));
+	PyTuple_SetItem(py_response, 4, PyString_FromString(libssh2_version_string));
+
+	return py_response;
 }
 
 
@@ -263,6 +303,7 @@ static PyMethodDef remote_ssh_manager_methods[] = {
 	 * arguments takes three.
 	 */
 	{"execute_ssh_instructions", (PyCFunction) execute_ssh_instructions, METH_VARARGS|METH_KEYWORDS},
+	{"get_build_information", (PyCFunction) get_build_information, METH_NOARGS},
 	{NULL,  NULL}
 };
 
