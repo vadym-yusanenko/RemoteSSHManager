@@ -11,7 +11,7 @@ LIBSSH2_VERSION=1.8.0
 
 # NOTE: Because two builds differ only in defines, make will be confused and will claim the target has already been built - so clean-up is advised
 
-#extension: openssl zlib libssh2
+extension: openssl zlib libssh2
 extension:
 	rm -rf build;
 ifdef SystemRoot

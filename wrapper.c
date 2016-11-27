@@ -1,11 +1,8 @@
 /*
- * wrapper.c
- *
  *  Created on: Nov 22, 2016
- *      Author: vadimyusanenko
+ *      Author: Vadym Yusanenko
+ *     License: BSD
  */
-
-//#define DEBUG
 
 #ifdef _WIN32
 	#include <Python.h>
@@ -95,27 +92,27 @@ PyObject* execute_ssh_instructions(PyObject* self, PyObject* args, PyObject* kwa
 	DEBUG_OUTPUT(stdout, "\tDONE\n");
 
 	DEBUG_OUTPUT(stdout, "=> Setting maximum supported timeout for SSH session...\n");
-    /* We have to disable timeout, as processing in practice may take some time */
-    libssh2_session_set_timeout(ssh_session, 0);
-    DEBUG_OUTPUT(stdout, "\tDONE\n");
+	/* We have to disable timeout, as processing in practice may take some time */
+	libssh2_session_set_timeout(ssh_session, 0);
+	DEBUG_OUTPUT(stdout, "\tDONE\n");
 
-    DEBUG_OUTPUT(stdout, "=> Enabling SSH protocol compression...\n");
-    /* Setting SSH compression to speed up big data transfers */
-    /* _SC - server-client, _CS - client-server */
-    libssh2_session_method_pref(ssh_session, LIBSSH2_METHOD_COMP_SC, "zlib");
-    DEBUG_OUTPUT(stdout, "\tDONE\n");
+	DEBUG_OUTPUT(stdout, "=> Enabling SSH protocol compression...\n");
+	/* Setting SSH compression to speed up big data transfers */
+	/* _SC - server-client, _CS - client-server */
+	libssh2_session_method_pref(ssh_session, LIBSSH2_METHOD_COMP_SC, "zlib");
+	DEBUG_OUTPUT(stdout, "\tDONE\n");
 
-    DEBUG_OUTPUT(stdout, "=> Performing SSH handshake...\n");
-    if (libssh2_session_handshake(ssh_session, ssh_socket))
-    {
-    	PyErr_SetString(PyExc_Exception, "Failure establishing SSH session");
-    	return (PyObject*) NULL;
-    }
-    DEBUG_OUTPUT(stdout, "\tDONE\n");
+	DEBUG_OUTPUT(stdout, "=> Performing SSH handshake...\n");
+	if (libssh2_session_handshake(ssh_session, ssh_socket))
+	{
+		PyErr_SetString(PyExc_Exception, "Failure establishing SSH session");
+		return (PyObject*) NULL;
+	}
+	DEBUG_OUTPUT(stdout, "\tDONE\n");
 
-    DEBUG_OUTPUT(stdout, "=> Getting available authentication methods...\n");
-    const char* user_authentication_methods = libssh2_userauth_list(ssh_session, ssh_username, (unsigned int) strlen(ssh_username));
-    DEBUG_OUTPUT(stdout, "\t%s\n", user_authentication_methods);
+	DEBUG_OUTPUT(stdout, "=> Getting available authentication methods...\n");
+	const char* user_authentication_methods = libssh2_userauth_list(ssh_session, ssh_username, (unsigned int) strlen(ssh_username));
+	DEBUG_OUTPUT(stdout, "\t%s\n", user_authentication_methods);
 
 	if (strstr(user_authentication_methods, "password") && strlen(ssh_password) != 0)
 	{
@@ -229,7 +226,7 @@ PyObject* execute_ssh_instructions(PyObject* self, PyObject* args, PyObject* kwa
 		if (libssh2_channel_close(ssh_channel) == 0)
 		{
 			process_exit_code = libssh2_channel_get_exit_status(ssh_channel);
-		    libssh2_channel_get_exit_signal(ssh_channel, &exit_signal, NULL, NULL, NULL, NULL, NULL);
+			libssh2_channel_get_exit_signal(ssh_channel, &exit_signal, NULL, NULL, NULL, NULL, NULL);
 		}
 
 		PyEval_RestoreThread(_save);
@@ -257,20 +254,20 @@ PyObject* execute_ssh_instructions(PyObject* self, PyObject* args, PyObject* kwa
 	//freehostent(remote_host);
 
 	PyEval_RestoreThread(_save);
-    return py_response;
+	return py_response;
 }
 
 static PyMethodDef remote_ssh_manager_methods[] = {
-    /* The cast of the function is necessary since PyCFunction values
-     * only take two PyObject* parameters, and our function with key-value
-     * arguments takes three.
-     */
-    {"execute_ssh_instructions", (PyCFunction) execute_ssh_instructions, METH_VARARGS|METH_KEYWORDS},
-    {NULL,  NULL}
+	/* The cast of the function is necessary since PyCFunction values
+	 * only take two PyObject* parameters, and our function with key-value
+	 * arguments takes three.
+	 */
+	{"execute_ssh_instructions", (PyCFunction) execute_ssh_instructions, METH_VARARGS|METH_KEYWORDS},
+	{NULL,  NULL}
 };
 
 void initremote_ssh_manager()
 {
-  /* Create the module and add the functions */
-  Py_InitModule("remote_ssh_manager", remote_ssh_manager_methods);
+	/* Create the module and add the functions */
+	Py_InitModule("remote_ssh_manager", remote_ssh_manager_methods);
 }
